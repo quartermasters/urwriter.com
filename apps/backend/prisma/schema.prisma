@@ -1,0 +1,444 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  roleFlags    Int      // bitmask: 1=Client, 2=Provider, 4=Admin
+  status       String   // active, suspended, pending_kyc
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  profile      Profile?
+  orgMembers   OrgMember[]
+  clientJobs   Job[]       @relation("ClientJobs")
+  proposals    Proposal[]
+  clientContracts Contract[] @relation("ClientContracts")
+  writerContracts Contract[] @relation("WriterContracts")
+  sentMessages Message[]
+  reviews      Review[]
+  riskEvents   RiskEvent[]
+  kycRecord    Kyc?
+  portfolioItems PortfolioItem[]
+  labelingProjects LabelingProject[]
+  labelingTasks LabelingTask[]
+
+  @@map("users")
+}
+
+model Kyc {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  provider  String   // stripe, persona
+  externalId String
+  status    String   // pending, verified, rejected
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("kyc_records")
+}
+
+model Profile {
+  userId        String   @id
+  displayName   String
+  headline      String?
+  bio           String?
+  hourlyRate    Decimal? @db.Decimal(10, 2)
+  location      String?
+  languages     String[]
+  skills        String[]
+  industries    String[]
+  portfolio     Json?
+  certificationTier String? // Pro, Specialist
+  completeness  Float    @default(0.0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([skills], type: Gin)
+  @@index([industries], type: Gin)
+  @@map("profiles")
+}
+
+model PortfolioItem {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  description String?
+  url         String?
+  fileUrl     String?
+  tags        String[]
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("portfolio_items")
+}
+
+model Org {
+  id        String   @id @default(uuid())
+  name      String
+  plan      String   // free, pro, enterprise
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     OrgMember[]
+  brandGuides BrandGuide[]
+  jobs        Job[]
+  labelingProjects LabelingProject[]
+
+  @@map("orgs")
+}
+
+model OrgMember {
+  id     String @id @default(uuid())
+  orgId  String
+  userId String
+  role   String // owner, admin, approver, requester
+  joinedAt DateTime @default(now())
+
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@map("org_members")
+}
+
+model BrandGuide {
+  id           String  @id @default(uuid())
+  orgId        String
+  name         String
+  tone         String?
+  banned       String[]
+  glossary     Json?
+  readingLevel Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org  Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  jobs Job[]
+
+  @@map("brand_guides")
+}
+
+model Job {
+  id          String   @id @default(uuid())
+  clientId    String
+  orgId       String?
+  title       String
+  description String
+  scope       Json     // deliverables, length, CTA, examples
+  skills      String[]
+  budgetType  String   // fixed, hourly
+  budgetMin   Decimal? @db.Decimal(10, 2)
+  budgetMax   Decimal? @db.Decimal(10, 2)
+  visibility  String   // public, invite
+  status      String   // draft, published, shortlisting, hired, closed, canceled
+  briefScore  Int      @default(0)
+  attachments Json?
+  brandGuideId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client     User        @relation("ClientJobs", fields: [clientId], references: [id])
+  org        Org?        @relation(fields: [orgId], references: [id])
+  brandGuide BrandGuide? @relation(fields: [brandGuideId], references: [id])
+  proposals  Proposal[]
+  contracts  Contract[]
+  threads    Thread[]
+
+  @@index([title, description])
+  @@index([status])
+  @@index([skills], type: Gin)
+  @@map("jobs")
+}
+
+model Proposal {
+  id        String   @id @default(uuid())
+  jobId     String
+  writerId  String
+  cover     String
+  bidType   String   // fixed, hourly
+  bidAmount Decimal? @db.Decimal(10, 2)
+  milestones Json?
+  status    String   // submitted, viewed, interview, declined, withdrawn, accepted
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job    Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  writer User @relation(fields: [writerId], references: [id])
+  contracts Contract[]
+
+  @@index([status])
+  @@map("proposals")
+}
+
+model Contract {
+  id         String    @id @default(uuid())
+  jobId      String
+  proposalId String?
+  clientId   String
+  writerId   String
+  type       String    // fixed, hourly
+  status     String    // active, paused, completed, canceled, disputed
+  terms      Json
+  aiPolicy   String    // allowed, disclose, prohibited
+  startedAt  DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  job       Job        @relation(fields: [jobId], references: [id])
+  proposal  Proposal?  @relation(fields: [proposalId], references: [id])
+  client    User       @relation("ClientContracts", fields: [clientId], references: [id])
+  writer    User       @relation("WriterContracts", fields: [writerId], references: [id])
+  milestones Milestone[]
+  threads   Thread[]
+  reviews   Review[]
+  deliveries Delivery[]
+
+  @@index([status])
+  @@map("contracts")
+}
+
+model Milestone {
+  id        String    @id @default(uuid())
+  contractId String
+  title     String
+  amount    Decimal   @db.Decimal(10, 2)
+  dueDate   DateTime?
+  status    String    // pending_fund, funded, delivered, revision, accepted, released, refunded
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  contract   Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  escrow     Escrow?
+  deliveries Delivery[]
+
+  @@map("milestones")
+}
+
+model Escrow {
+  id            String    @id @default(uuid())
+  milestoneId   String    @unique
+  provider      String    // stripe
+  piId          String    // payment_intent id
+  status        String    // created, captured, released, refunded, dispute_hold
+  amount        Decimal   @db.Decimal(10, 2)
+  currency      String
+  autoReleaseAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@map("escrows")
+}
+
+model Thread {
+  id         String  @id @default(uuid())
+  jobId      String?
+  contractId String?
+  title      String?
+  createdAt  DateTime @default(now())
+
+  job      Job?      @relation(fields: [jobId], references: [id])
+  contract Contract? @relation(fields: [contractId], references: [id])
+  messages Message[]
+
+  @@map("threads")
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  threadId    String
+  senderId    String
+  body        String
+  attachments Json?
+  systemFlag  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender User   @relation(fields: [senderId], references: [id])
+
+  @@index([threadId, createdAt])
+  @@map("messages")
+}
+
+model Delivery {
+  id          String   @id @default(uuid())
+  milestoneId String
+  contractId  String
+  notes       String?
+  files       Json?
+  version     Int      @default(1)
+  submittedAt DateTime @default(now())
+  status      String   // submitted, approved, revision_requested
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  contract  Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  qaRuns    QA_Run[]
+
+  @@map("deliveries")
+}
+
+model Review {
+  id          String   @id @default(uuid())
+  contractId  String
+  raterId     String
+  rateeId     String
+  rating      Int
+  publicText  String?
+  privateText String?
+  createdAt   DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  rater    User     @relation(fields: [raterId], references: [id])
+
+  @@map("reviews")
+}
+
+model QA_Run {
+  id         String   @id @default(uuid())
+  deliveryId String
+  type       String   // grammar, readability, tone_match, keyword_coverage, plagiarism
+  score      Float?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@map("qa_runs")
+}
+
+model RiskEvent {
+  id        String   @id @default(uuid())
+  userId    String?
+  jobId     String?
+  type      String
+  payload   Json
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([status])
+  @@map("risk_events")
+}
+
+model LedgerEntry {
+  id        String   @id @default(uuid())
+  account   String
+  debit     Decimal? @db.Decimal(12, 2)
+  credit    Decimal? @db.Decimal(12, 2)
+  currency  String
+  refType   String
+  refId     String
+  createdAt DateTime @default(now())
+
+  @@index([account])
+  @@index([refType, refId])
+  @@map("ledger_entries")
+}
+
+model PurchaseOrder {
+  id        String   @id @default(uuid())
+  orgId     String
+  number    String
+  amount    Decimal  @db.Decimal(10, 2)
+  currency  String
+  status    String
+  createdAt DateTime @default(now())
+
+  @@map("purchase_orders")
+}
+
+model Template {
+  id        String   @id @default(uuid())
+  type      String   // job, proposal, contract
+  name      String
+  content   String
+  variables Json?
+  createdAt DateTime @default(now())
+
+  @@map("templates")
+}
+
+// Labeling Vertical Models
+model LabelingProject {
+  id       String   @id @default(uuid())
+  orgId    String?
+  clientId String
+  title    String
+  type     String   // rlhf, eval, style
+  rubricId String?
+  scope    Json
+  status   String   // draft, active, completed, canceled
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client User              @relation(fields: [clientId], references: [id])
+  org    Org?              @relation(fields: [orgId], references: [id])
+  rubric LabelingRubric?   @relation(fields: [rubricId], references: [id])
+  tasks  LabelingTask[]
+
+  @@map("labeling_projects")
+}
+
+model LabelingTask {
+  id         String   @id @default(uuid())
+  projectId  String
+  assigneeId String?
+  input      Json
+  label      Json?
+  gold       Json?    // gold standard for evaluation
+  status     String   // queued, in_progress, review, approved, rework, completed
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project  LabelingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User?           @relation(fields: [assigneeId], references: [id])
+
+  @@index([status])
+  @@map("labeling_tasks")
+}
+
+model LabelingRubric {
+  id        String   @id @default(uuid())
+  name      String
+  version   Int
+  spec      Json
+  createdAt DateTime @default(now())
+
+  projects LabelingProject[]
+
+  @@unique([name, version])
+  @@map("labeling_rubrics")
+}
+
+model MetricDaily {
+  id     String   @id @default(uuid())
+  date   DateTime @db.Date
+  metric String
+  value  Float
+  tags   Json?
+
+  @@unique([date, metric])
+  @@map("metric_daily")
+}

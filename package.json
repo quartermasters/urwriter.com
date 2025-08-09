@@ -1,0 +1,39 @@
+{
+  "name": "urwriter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "URWRITER - Writer-first freelance marketplace with editorial collaboration, brand governance, escrow, disputes, and compliance-grade data labeling",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:frontend": "turbo run dev --filter=@urwriter/frontend",
+    "dev:backend": "turbo run dev --filter=@urwriter/backend",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean",
+    "db:migrate": "cd apps/backend && pnpm run db:migrate",
+    "db:generate": "cd apps/backend && pnpm run db:generate",
+    "db:reset": "cd apps/backend && pnpm run db:reset",
+    "db:studio": "cd apps/backend && pnpm run db:studio",
+    "setup": "node scripts/setup.js",
+    "docker:up": "cd infra/docker && docker-compose -f compose.dev.yml up -d",
+    "docker:down": "cd infra/docker && docker-compose -f compose.dev.yml down",
+    "docker:logs": "cd infra/docker && docker-compose -f compose.dev.yml logs -f"
+  },
+  "devDependencies": {
+    "@turbo/gen": "^1.10.12",
+    "turbo": "^1.10.12",
+    "prettier": "^3.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "typescript": "^5.0.0"
+  },
+  "packageManager": "pnpm@8.15.6",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

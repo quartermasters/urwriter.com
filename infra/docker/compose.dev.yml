@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: urwriter-postgres
+    environment:
+      POSTGRES_DB: urwriter_dev
+      POSTGRES_USER: urwriter
+      POSTGRES_PASSWORD: urwriter_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urwriter -d urwriter_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: urwriter-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Meilisearch
+  meilisearch:
+    image: getmeili/meilisearch:v1.7
+    container_name: urwriter-meilisearch
+    environment:
+      MEILI_MASTER_KEY: urwriter_search_key
+      MEILI_NO_ANALYTICS: true
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: urwriter-minio
+    environment:
+      MINIO_ROOT_USER: urwriter
+      MINIO_ROOT_PASSWORD: urwriter_minio_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API
+  backend:
+    build:
+      context: ../../
+      dockerfile: apps/backend/Dockerfile
+    container_name: urwriter-backend
+    environment:
+      DATABASE_URL: "postgresql://urwriter:urwriter_password@postgres:5432/urwriter_dev"
+      REDIS_URL: "redis://redis:6379"
+      MEILISEARCH_HOST: "http://meilisearch:7700"
+      MEILISEARCH_API_KEY: "urwriter_search_key"
+      S3_BUCKET: "urwriter-dev"
+      S3_REGION: "us-east-1"
+      S3_ACCESS_KEY: "urwriter"
+      S3_SECRET_KEY: "urwriter_minio_password"
+      S3_ENDPOINT: "http://minio:9000"
+      JWT_ACCESS_SECRET: "your_jwt_access_secret_min_32_characters_long"
+      JWT_REFRESH_SECRET: "your_jwt_refresh_secret_min_32_characters_long"
+      STRIPE_SECRET_KEY: "sk_test_your_stripe_secret_key"
+      STRIPE_WEBHOOK_SECRET: "whsec_your_webhook_secret"
+      STRIPE_CONNECT_CLIENT_ID: "ca_your_connect_client_id"
+      PAYPAL_CLIENT_ID: "your_paypal_client_id"
+      PAYPAL_CLIENT_SECRET: "your_paypal_client_secret"
+      KYC_PROVIDER: "stripe"
+      KYC_API_KEY: "your_kyc_api_key"
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+      PORT: 3001
+      NODE_ENV: development
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ../../apps/backend:/app
+      - /app/node_modules
+    command: ["pnpm", "run", "dev"]
+
+  # Frontend App
+  frontend:
+    build:
+      context: ../../
+      dockerfile: apps/frontend/Dockerfile
+    container_name: urwriter-frontend
+    environment:
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+      NEXT_PUBLIC_API_URL: "http://localhost:3001"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ../../apps/frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: ["pnpm", "run", "dev"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  meilisearch_data:
+  minio_data:
